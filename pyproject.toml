@@ -22,7 +22,7 @@ dependencies = [
     # are now core deps of `typer`, so plain `typer` gives the full experience.
     "typer==0.26.7",
     "rich==14.1.0",
-    "sqlmodel==0.0.38",
+    "sqlmodel==0.0.39",
     "pydantic==2.13.4",
     # Scraping stack: curl_cffi fetches postings with browser TLS/JA3
     # impersonation, beautifulsoup4 parses the returned HTML.
