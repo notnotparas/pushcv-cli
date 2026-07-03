@@ -1,0 +1,54 @@
+[project]
+name = "pushcv"
+version = "0.1.0"
+description = "pushcv — a local-first CLI to track your job applications, right from the terminal."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "pushcv contributors" }]
+keywords = ["cli", "jobs", "job-tracker", "applications", "local-first", "typer"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Utilities",
+]
+
+dependencies = [
+    # As of Typer 0.26.x the `[all]` extra was removed: `rich` + `shellingham`
+    # are now core deps of `typer`, so plain `typer` gives the full experience.
+    "typer==0.26.7",
+    "rich==14.1.0",
+    "sqlmodel==0.0.38",
+    "pydantic==2.13.4",
+    # Scraping stack: curl_cffi fetches postings with browser TLS/JA3
+    # impersonation, beautifulsoup4 parses the returned HTML.
+    "curl_cffi==0.7.4",
+    "beautifulsoup4==4.14.3",
+    # AI synthesis: litellm routes completions to a local OpenAI-compatible
+    # server; python-dotenv loads local credentials/config from a .env file.
+    "litellm==1.87.1",
+    "python-dotenv==1.0.1",
+    # Web search: ddgs (the maintained successor to duckduckgo-search) pulls
+    # live compensation snippets to ground the AI salary estimate in real data.
+    "ddgs==9.14.4",
+]
+
+[project.urls]
+Homepage = "https://github.com/pushcv/pushcv"
+Repository = "https://github.com/pushcv/pushcv"
+
+# Global terminal entry point: running `pushcv` invokes the Typer `app`.
+[project.scripts]
+pushcv = "pushcv.main:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# src/ layout — the importable package lives at src/pushcv.
+[tool.hatch.build.targets.wheel]
+packages = ["src/pushcv"]
