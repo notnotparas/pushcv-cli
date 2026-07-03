@@ -1,0 +1,40 @@
+name: Feature request
+description: Suggest an idea or improvement
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please check the [Roadmap](../../README.md#roadmap--contributions-welcome)
+        first — your idea may already be planned. Note that pushcv is
+        **local-first by design**: features that send user data to a hosted
+        service or add telemetry are out of scope.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the job-hunting pain point, not just the feature.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What would the command / behavior look like?
+      placeholder: "e.g. `pushcv fetch <greenhouse-url>` should …"
+    validations:
+      required: true
+  - type: checkboxes
+    id: principles
+    attributes:
+      label: Fits the project principles
+      options:
+        - label: This keeps user data local (no hosted services, no telemetry).
+          required: true
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Contribution
+      options:
+        - label: I'm willing to help implement this.
+          required: false

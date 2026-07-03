@@ -3,8 +3,23 @@
 > Your master profile. pushcv uses these sections as the source of truth when
 > tailoring applications. Fill them in once, reuse everywhere.
 >
-> NOTE: This is a SAMPLE DevOps profile — replace every value below with your
-> own real experience, dates, and numbers before drafting applications.
+> NOTE: This is a SAMPLE DevOps profile shipped as a reference. Copy it to
+> `profile.md` (or run `pushcv init`) and replace every value below with your
+> own real name, experience, dates, and numbers before drafting applications.
+
+## Name
+
+<!-- Your full name — used to sign resumes and cover letters. -->
+
+Jordan Rivera
+
+## Contact
+
+<!-- Optional: email, phone, location, links (LinkedIn, GitHub, portfolio). -->
+
+- **Email:** jordan.rivera@example.com
+- **Location:** Remote (US)
+- **Links:** github.com/your-handle · linkedin.com/in/your-handle
 
 ## Summary
 

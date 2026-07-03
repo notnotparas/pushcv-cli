@@ -37,6 +37,10 @@ dependencies = [
     "ddgs==9.14.4",
 ]
 
+[project.optional-dependencies]
+# Development tooling: `pip install -e ".[dev]"`.
+dev = ["pytest>=8,<9"]
+
 [project.urls]
 Homepage = "https://github.com/notnotparas/pushcv-cli"
 Repository = "https://github.com/notnotparas/pushcv-cli"

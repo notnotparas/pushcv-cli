@@ -185,10 +185,11 @@ Everything pushcv writes lives in your working directory:
 | `pushcv.db` | Your applications (SQLite). |
 | `profile.md` | Your master profile — the source of truth for resume tailoring. |
 | `.pushcv.json` | Per-workspace preferences (e.g. AI salary toggle). |
-| `drafts/` | Generated resume Markdown files. |
+| `drafts/` | Generated resume & cover-letter Markdown files. |
 
 All of these are git-ignored by default — they're personal and never meant to be
-committed.
+committed. A filled-in reference, [`profile.example.md`](profile.example.md), is
+included in the repo to show what a complete profile looks like.
 
 ## Privacy & responsible use
 
@@ -202,8 +203,9 @@ committed.
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-pip install -e .
+pip install -e ".[dev]"     # editable install + test tooling
 pushcv --help
+pytest                       # run the helper test suite
 ```
 
 Project layout (src/ layout):
@@ -211,7 +213,9 @@ Project layout (src/ layout):
 ```text
 pushcv-cli/
 ├── pyproject.toml        # PEP 621 metadata, pinned deps, `pushcv` entry point
-├── README.md · LICENSE · .gitignore
+├── README.md · LICENSE · CONTRIBUTING.md · CODE_OF_CONDUCT.md · .gitignore
+├── profile.example.md    # filled-in reference profile
+├── tests/                # unit tests for the pure helpers
 └── src/pushcv/
     ├── __init__.py       # version
     ├── main.py           # Typer app, DB engine, all commands, Kanban UI
@@ -222,8 +226,10 @@ pushcv-cli/
     └── config.py         # per-workspace preferences (.pushcv.json)
 ```
 
-Contributions welcome — please open an issue to discuss substantial changes
-first. (Tests are a great first contribution; see "Roadmap" below.)
+**Contributions welcome!** Please read [CONTRIBUTING.md](CONTRIBUTING.md) for
+dev setup, the local-first ground rules, and how to add a new job board. All
+participation is governed by our [Code of Conduct](CODE_OF_CONDUCT.md). Open an
+issue to discuss substantial changes before you start.
 
 ## Roadmap — contributions welcome!
 
@@ -234,8 +240,8 @@ These are scoped to be approachable first PRs; open an issue to claim one:
   friendlier than LinkedIn, and they're where most external apply links land
   anyway. A fetcher just needs to return the same dict shape as
   `fetch_linkedin_job` in [scraper.py](src/pushcv/scraper.py).
-- **Unit tests** for the pure helpers — salary parsing (`search.py`), LinkedIn
-  URL normalization (`scraper.py`), currency inference (`ai_engine.py`).
+- **Expand the test suite** — `tests/` covers the pure helpers today; the
+  scrapers, salary extraction, and command flows still need coverage.
 - **Optional dependency extras** (`pushcv[ai]`) so a minimal install doesn't
   pull the LLM stack.
 - **PDF export** for drafted resumes/cover letters (e.g. via pandoc or typst).

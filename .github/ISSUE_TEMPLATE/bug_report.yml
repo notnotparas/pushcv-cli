@@ -1,0 +1,58 @@
+name: Bug report
+description: Something isn't working as expected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report! Please redact anything personal (profile
+        contents, real job URLs you'd rather keep private) before submitting.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you expect, and what actually happened?
+      placeholder: Running `pushcv status` shows … but I expected …
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command & output
+      description: The exact command you ran and the full output.
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: pushcv version / commit
+      description: Output of `pip show pushcv` or the commit SHA you installed from.
+    validations:
+      required: false
+  - type: input
+    id: os
+    attributes:
+      label: OS & Python version
+      placeholder: "e.g. Ubuntu 24.04, Python 3.11"
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Tracking (add/status/move/show/delete/note)
+        - Scraping (fetch)
+        - AI drafting (draft / cover letter)
+        - Salary estimates (experimental)
+        - Export / other
+    validations:
+      required: true
+  - type: checkboxes
+    id: flaky
+    attributes:
+      label: Third-party data
+      options:
+        - label: I understand scraping and salary estimates depend on live third-party data and can be intermittently flaky, and I've confirmed this is reproducible.
+          required: false
