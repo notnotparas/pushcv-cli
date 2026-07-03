@@ -26,7 +26,7 @@ dependencies = [
     "pydantic==2.13.4",
     # Scraping stack: curl_cffi fetches postings with browser TLS/JA3
     # impersonation, beautifulsoup4 parses the returned HTML.
-    "curl_cffi==0.7.4",
+    "curl_cffi==0.15.0",
     "beautifulsoup4==4.14.3",
     # AI synthesis: litellm routes completions to a local OpenAI-compatible
     # server; python-dotenv loads local credentials/config from a .env file.
