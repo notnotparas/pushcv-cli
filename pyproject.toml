@@ -38,8 +38,8 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/pushcv/pushcv"
-Repository = "https://github.com/pushcv/pushcv"
+Homepage = "https://github.com/notnotparas/pushcv-cli"
+Repository = "https://github.com/notnotparas/pushcv-cli"
 
 # Global terminal entry point: running `pushcv` invokes the Typer `app`.
 [project.scripts]

@@ -45,25 +45,26 @@ Built with [Typer](https://typer.tiangolo.com/) · [Rich](https://rich.readthedo
 
 ## Installation
 
-The recommended way is [pipx](https://pipx.pypa.io/) (installs the CLI in an
-isolated environment and puts `pushcv` on your PATH):
+The recommended way is [pipx](https://pipx.pypa.io/) — it installs the CLI in an
+isolated environment and puts `pushcv` on your PATH. Install straight from the
+repo:
 
 ```bash
-pipx install pushcv
+pipx install git+https://github.com/notnotparas/pushcv-cli.git
 ```
 
 Or with pip:
 
 ```bash
-pip install pushcv
+pip install git+https://github.com/notnotparas/pushcv-cli.git
 ```
 
 <details>
 <summary>From source (development)</summary>
 
 ```bash
-git clone https://github.com/pushcv/pushcv.git
-cd pushcv
+git clone https://github.com/notnotparas/pushcv-cli.git
+cd pushcv-cli
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e .        # wires up the global `pushcv` command
 ```
