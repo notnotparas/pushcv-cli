@@ -2,10 +2,8 @@
 
 Thanks for your interest in improving pushcv! This is a small, focused project
 and contributions are very welcome — especially the items on the
-[Roadmap](README.md#roadmap--contributions-welcome).
-
-By participating you agree to abide by our
-[Code of Conduct](CODE_OF_CONDUCT.md).
+[Roadmap](README.md#roadmap--contributions-welcome). Be kind and constructive,
+and assume good faith.
 
 ## Guiding principles
 

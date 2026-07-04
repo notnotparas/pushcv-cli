@@ -213,7 +213,7 @@ Project layout (src/ layout):
 ```text
 pushcv-cli/
 ├── pyproject.toml        # PEP 621 metadata, pinned deps, `pushcv` entry point
-├── README.md · LICENSE · CONTRIBUTING.md · CODE_OF_CONDUCT.md · .gitignore
+├── README.md · LICENSE · CONTRIBUTING.md · .gitignore
 ├── profile.example.md    # filled-in reference profile
 ├── tests/                # unit tests for the pure helpers
 └── src/pushcv/
@@ -227,8 +227,7 @@ pushcv-cli/
 ```
 
 **Contributions welcome!** Please read [CONTRIBUTING.md](CONTRIBUTING.md) for
-dev setup, the local-first ground rules, and how to add a new job board. All
-participation is governed by our [Code of Conduct](CODE_OF_CONDUCT.md). Open an
+dev setup, the local-first ground rules, and how to add a new job board. Open an
 issue to discuss substantial changes before you start.
 
 ## Roadmap — contributions welcome!
