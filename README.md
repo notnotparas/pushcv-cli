@@ -8,6 +8,8 @@ leaving your machine.
 Built with [Typer](https://typer.tiangolo.com/) · [Rich](https://rich.readthedocs.io/)
 · [SQLModel](https://sqlmodel.tiangolo.com/) on a local SQLite database.
 
+![pushcv — the application pipeline as a Kanban board in the terminal](pushcv-cli.png)
+
 > **Local-first by design.** Your applications live in a single SQLite file on
 > your disk. Resume tailoring runs on a model on *your* laptop. The only network
 > calls are (1) scraping a posting you explicitly point it at and (2) an optional
