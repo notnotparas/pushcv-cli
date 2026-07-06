@@ -43,6 +43,10 @@ Built with [Typer](https://typer.tiangolo.com/) · [Rich](https://rich.readthedo
 - 📦 **Your data is yours** — export everything to JSON or CSV anytime with
   `pushcv export`.
 
+> **Prefer a visual board?** [pushcv-ui](https://github.com/notnotparas/pushcv-ui)
+> is an optional local web UI over the same workspace — same `pushcv.db`, same
+> local-first rules, `uvx pushcv-ui` to try it. The CLI stays the core product.
+
 ## Requirements
 
 - **Python ≥ 3.10**
@@ -52,18 +56,23 @@ Built with [Typer](https://typer.tiangolo.com/) · [Rich](https://rich.readthedo
 
 ## Installation
 
-The recommended way is [pipx](https://pipx.pypa.io/) — it installs the CLI in an
-isolated environment and puts `pushcv` on your PATH. Install straight from the
-repo:
+Try it without installing anything, via [uv](https://docs.astral.sh/uv/):
+
+```bash
+uvx pushcv init
+```
+
+Or install it — [pipx](https://pipx.pypa.io/) keeps the CLI in an isolated
+environment and puts `pushcv` on your PATH:
+
+```bash
+pipx install pushcv          # from PyPI
+```
+
+Bleeding edge, straight from the repo:
 
 ```bash
 pipx install git+https://github.com/notnotparas/pushcv-cli.git
-```
-
-Or with pip:
-
-```bash
-pip install git+https://github.com/notnotparas/pushcv-cli.git
 ```
 
 <details>
