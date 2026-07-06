@@ -48,8 +48,10 @@ PROFILE_PATH = Path("profile.md")
 DRAFTS_DIR = Path("drafts")
 DATABASE_URL = f"sqlite:///{DB_PATH}"
 
-# Default local model id (must match a model loaded in the Lemonade server).
-DEFAULT_AI_MODEL = "Qwen3-8B-GGUF"
+# Default local model id (must match a model available on the local inference
+# server — see PUSHCV_AI_BASE in ai_engine.py). Override with PUSHCV_AI_MODEL,
+# e.g. PUSHCV_AI_MODEL=qwen3:8b for Ollama.
+DEFAULT_AI_MODEL = os.getenv("PUSHCV_AI_MODEL", "Qwen3-8B-GGUF")
 
 # check_same_thread=False makes the connection usable across threads, which is
 # required for a CLI that may dispatch work onto worker/background threads.

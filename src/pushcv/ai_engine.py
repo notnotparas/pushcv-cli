@@ -6,6 +6,7 @@ local-first — no data leaves the machine.
 """
 from __future__ import annotations
 
+import os
 import re
 from typing import Optional
 
@@ -13,12 +14,18 @@ import litellm
 from dotenv import load_dotenv
 
 # Pull any local overrides (e.g. PUSHCV_AI_BASE) from a .env in the workspace.
-load_dotenv()
+# The explicit relative path matters: with no argument, python-dotenv searches
+# upward from THIS package's directory — not from the user's working directory
+# — and would never find the workspace .env. pushcv is cwd-scoped by design.
+load_dotenv(".env")
 
-# Local OpenAI-compatible inference server. The api_key is a non-secret
-# placeholder the local server expects; nothing is sent to a remote provider.
-LOCAL_API_BASE = "http://localhost:13305/v1"
-LOCAL_API_KEY = "lemonade-local"
+# Local OpenAI-compatible inference server. Defaults target Lemonade; point
+# PUSHCV_AI_BASE at any other OpenAI-compatible server — e.g. Ollama
+# (http://localhost:11434/v1) or llama.cpp — via the environment or a .env
+# file in the workspace. The api_key is a non-secret placeholder most local
+# servers expect; nothing is sent to a remote provider.
+LOCAL_API_BASE = os.getenv("PUSHCV_AI_BASE", "http://localhost:13305/v1")
+LOCAL_API_KEY = os.getenv("PUSHCV_AI_KEY", "lemonade-local")
 
 # Request timeouts (seconds). Local generation on CPU can legitimately take
 # minutes (model load + long completion), but an unbounded call hangs forever
