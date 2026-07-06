@@ -31,7 +31,7 @@ dependencies = [
     # AI synthesis: litellm routes completions to a local OpenAI-compatible
     # server; python-dotenv loads local credentials/config from a .env file.
     "litellm==1.87.1",
-    "python-dotenv==1.0.1",
+    "python-dotenv==1.2.2",
     # Web search: ddgs (the maintained successor to duckduckgo-search) pulls
     # live compensation snippets to ground the AI salary estimate in real data.
     "ddgs==9.14.4",
