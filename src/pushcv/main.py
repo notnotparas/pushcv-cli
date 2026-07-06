@@ -1,13 +1,13 @@
 """pushcv CLI entry point.
 
-Configures the global Typer application, the thread-safe local-first SQLite
-engine, and the interactive commands (init / add / status) with a high-fidelity
-Rich text user interface.
+The terminal presentation layer: a global Typer application rendering the
+pipeline with a high-fidelity Rich text user interface. All data operations
+(statuses, positions, notes, migrations) live in the service layer,
+:mod:`pushcv.core`, shared with external frontends such as ``pushcv-ui``.
 """
 import csv
 import io
 import json
-import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -21,14 +21,21 @@ from rich.panel import Panel
 from rich.style import Style
 from rich.table import Table
 from rich.text import Text
-from sqlalchemy import inspect as sa_inspect, text as sa_text
-from sqlmodel import Session, SQLModel, create_engine, select
+from sqlmodel import select
 
-# Importing the models registers JobApplication on SQLModel.metadata so that
-# create_all() knows about every table.
-from pushcv import models  # noqa: F401  (imported for metadata registration)
+from pushcv.core import (
+    FOLLOW_UP_DAYS,
+    STATUS_COLUMNS,
+    STATUS_SYMBOL,
+    PositionError,
+    Workspace,
+    bucket as _bucket,
+    column_meta,
+    days_since as _days_since,
+)
 from pushcv.models import JobApplication
-from pushcv.scraper import fetch_linkedin_debug, fetch_linkedin_job
+from pushcv import portals
+from pushcv.scraper import fetch_linkedin_debug
 from pushcv.ai_engine import (
     currency_for_location,
     estimate_compensation,
@@ -39,95 +46,15 @@ from pushcv.search import extract_salary, get_salary_snippets
 from pushcv import config
 
 # --------------------------------------------------------------------------- #
-# Paths & database engine
+# Workspace
 # --------------------------------------------------------------------------- #
-# Local-first: the SQLite file and profile template live next to wherever the
-# user runs pushcv.
-DB_PATH = Path("pushcv.db")
-PROFILE_PATH = Path("profile.md")
-DRAFTS_DIR = Path("drafts")
-DATABASE_URL = f"sqlite:///{DB_PATH}"
+# Local-first: the SQLite file, profile template, and drafts live next to
+# wherever the user runs pushcv. The Workspace (pushcv.core) owns the engine,
+# schema migrations, positional addressing, and every pipeline operation.
+ws = Workspace()
 
 # Default local model id (must match a model loaded in the Lemonade server).
 DEFAULT_AI_MODEL = "Qwen3-8B-GGUF"
-
-# check_same_thread=False makes the connection usable across threads, which is
-# required for a CLI that may dispatch work onto worker/background threads.
-engine = create_engine(
-    DATABASE_URL,
-    echo=False,
-    connect_args={"check_same_thread": False},
-)
-
-
-def init_db() -> None:
-    """Create the database file and all tables if they do not yet exist.
-
-    Idempotent: ``create_all`` only emits ``CREATE TABLE`` for missing tables.
-    A lightweight column migration then backfills any columns added to the model
-    after a database was first created (``create_all`` never ALTERs).
-    """
-    SQLModel.metadata.create_all(engine)
-    _migrate_columns()
-
-
-def _migrate_columns() -> None:
-    """Add model columns missing from an existing job_application table.
-
-    Keeps older local databases compatible without a migration framework: each
-    nullable column added to :class:`JobApplication` is appended on demand.
-    """
-    table = JobApplication.__tablename__
-    inspector = sa_inspect(engine)
-    if table not in inspector.get_table_names():
-        return  # create_all will have made it with every column.
-
-    existing = {col["name"] for col in inspector.get_columns(table)}
-    # column name -> SQLite type for any nullable columns added post-creation.
-    additions = {
-        "location": "TEXT",
-        "description": "TEXT",
-        "salary_estimate": "VARCHAR",
-        "applied_at": "TIMESTAMP",
-        "notes": "TEXT",
-    }
-    with engine.begin() as conn:
-        for name, sql_type in additions.items():
-            if name not in existing:
-                conn.execute(sa_text(f"ALTER TABLE {table} ADD COLUMN {name} {sql_type}"))
-
-
-def get_session() -> Session:
-    """Return a new SQLModel Session bound to the global engine."""
-    return Session(engine)
-
-
-# --------------------------------------------------------------------------- #
-# Positional addressing
-# --------------------------------------------------------------------------- #
-# Users reference jobs by the 1..N position shown in `pushcv status`, not by the
-# raw (gappy) database id. Position is the rank in a single canonical ordering,
-# computed here so the board and every command stay in agreement.
-def _ordered_job_ids() -> List[int]:
-    """Return all job database ids in the canonical display order (1..N)."""
-    with get_session() as session:
-        jobs = session.exec(
-            select(JobApplication).order_by(
-                JobApplication.created_at, JobApplication.id
-            )
-        ).all()
-    return [job.id for job in jobs]
-
-
-def _resolve_position(position: int) -> Optional[int]:
-    """Map a 1-based display position to its underlying database id.
-
-    Returns ``None`` if the position is out of range.
-    """
-    ids = _ordered_job_ids()
-    if 1 <= position <= len(ids):
-        return ids[position - 1]
-    return None
 
 
 def _invalid_position(position: int) -> "typer.Exit":
@@ -149,52 +76,8 @@ def _invalid_position(position: int) -> "typer.Exit":
     return typer.Exit(code=1)
 
 
-# --------------------------------------------------------------------------- #
-# Kanban pipeline configuration
-# --------------------------------------------------------------------------- #
-# Ordered Kanban columns: (canonical key, display label, accent colour).
-STATUS_COLUMNS = [
-    ("drafting", "Drafting", "yellow"),
-    ("applied", "Applied", "cyan"),
-    ("interviewing", "Interviewing", "magenta"),
-    ("closed", "Closed", "red"),
-]
-
-# Map free-text status values onto canonical Kanban columns so the board stays
-# robust to synonyms and minor variations.
-STATUS_ALIASES = {
-    "drafting": "drafting",
-    "draft": "drafting",
-    # A drafted resume is prepared but not yet submitted — still pre-application.
-    "ready_to_apply": "drafting",
-    "ready": "drafting",
-    "applied": "applied",
-    "submitted": "applied",
-    "interviewing": "interviewing",
-    "interview": "interviewing",
-    "screen": "interviewing",
-    "onsite": "interviewing",
-    "closed": "closed",
-    "rejected": "closed",
-    "offer": "closed",
-    "accepted": "closed",
-    "declined": "closed",
-    "ghosted": "closed",
-}
-
-# Per-column symbol used as the explicit highlight designator on every card.
-STATUS_SYMBOL = {
-    "drafting": "✎",
-    "applied": "➤",
-    "interviewing": "★",
-    "closed": "⏹",
-}
-
-
-def _bucket(status: str) -> str:
-    """Resolve an arbitrary status string to a canonical Kanban column key."""
-    key = (status or "").strip().lower()
-    return STATUS_ALIASES.get(key, "closed")
+# Kanban pipeline configuration (STATUS_COLUMNS / STATUS_ALIASES /
+# STATUS_SYMBOL / _bucket) is shared with other frontends via pushcv.core.
 
 
 def _link(url: str, label: Optional[str] = None) -> Text:
@@ -206,64 +89,6 @@ def _link(url: str, label: Optional[str] = None) -> Text:
     Windows Terminal, etc.).
     """
     return Text(label or url, style=Style(color="blue", underline=True, link=url))
-
-
-# --------------------------------------------------------------------------- #
-# Profile template
-# --------------------------------------------------------------------------- #
-PROFILE_TEMPLATE = """\
-# pushcv Profile
-
-> Your master profile. pushcv uses these sections as the source of truth when
-> tailoring applications. Fill them in once, reuse everywhere.
-
-## Name
-
-<!-- Your full name — used to sign resumes and cover letters. -->
-
-Your Name
-
-## Contact
-
-<!-- Optional: email, phone, location, links (LinkedIn, GitHub, portfolio). -->
-
-- **Email:**
-- **Location:**
-- **Links:**
-
-## Experience
-
-<!-- List your roles, most recent first. -->
-
-- **Company** — _Title_ (Start – End)
-  - Impact-focused highlight (what you did, the result, the number).
-
-## Tech Stack
-
-<!-- The languages, frameworks, and tools you work with. -->
-
-- **Languages:**
-- **Frameworks:**
-- **Tools & Platforms:**
-
-## Projects
-
-<!-- Notable projects worth showcasing. -->
-
-- **Project name** — one-line description.
-  - Link:
-"""
-
-
-def _write_profile_template() -> bool:
-    """Create profile.md from the template if it does not already exist.
-
-    Returns True if the file was created, False if it already existed.
-    """
-    if PROFILE_PATH.exists():
-        return False
-    PROFILE_PATH.write_text(PROFILE_TEMPLATE, encoding="utf-8")
-    return True
 
 
 # --------------------------------------------------------------------------- #
@@ -292,13 +117,13 @@ def main() -> None:
 @app.command()
 def init() -> None:
     """Initialize the local pushcv database and profile template."""
-    db_existed = DB_PATH.exists()
+    db_existed = ws.db_path.exists()
 
     # Generate all SQLModel metadata structures (idempotent).
-    init_db()
+    ws.init_db()
 
     # Drop a base profile.md template alongside the database.
-    profile_created = _write_profile_template()
+    profile_created = ws.write_profile_template()
 
     # ----- success banner ----- #
     db_line = Text()
@@ -307,7 +132,7 @@ def init() -> None:
         db_line.append("already present  ", style="yellow")
     else:
         db_line.append("created  ", style="green")
-    db_line.append(str(DB_PATH.resolve()), style="cyan")
+    db_line.append(str(ws.db_path.resolve()), style="cyan")
 
     profile_line = Text()
     profile_line.append("  profile   ", style="bold")
@@ -315,7 +140,7 @@ def init() -> None:
         profile_line.append("created  ", style="green")
     else:
         profile_line.append("already present  ", style="yellow")
-    profile_line.append(str(PROFILE_PATH.resolve()), style="cyan")
+    profile_line.append(str(ws.profile_path.resolve()), style="cyan")
 
     hint = Text("\nNext: ", style="dim")
     hint.append("pushcv add \"Company\" \"Title\" --url <link>", style="bold white")
@@ -349,17 +174,7 @@ def add(
     ),
 ) -> None:
     """Add a new job application to the pipeline (starts in Drafting)."""
-    # Ensure the schema exists even if the user skipped `init`.
-    init_db()
-
-    job = JobApplication(company=company, title=title, url=url)
-    with get_session() as session:
-        session.add(job)
-        session.commit()
-        session.refresh(job)
-
-    # Newly added jobs sort last, so their display position is the current count.
-    position = len(_ordered_job_ids())
+    job, position = ws.add_job(company=company, title=title, url=url)
 
     body = Text()
     body.append("✎ ", style="bold yellow")  # drafting designator
@@ -389,7 +204,8 @@ def add(
 
 
 # --------------------------------------------------------------------------- #
-# fetch (scrape a LinkedIn posting)
+# fetch (scrape a job posting — LinkedIn, Greenhouse, Lever, SmartRecruiters,
+# or any page with schema.org JobPosting metadata)
 # --------------------------------------------------------------------------- #
 def _fetch_debug(url: str) -> None:
     """Dump raw LinkedIn HTML and report where apply URLs were (or weren't) found."""
@@ -424,7 +240,11 @@ def _fetch_debug(url: str) -> None:
 
 @app.command()
 def fetch(
-    url: str = typer.Argument(..., help="LinkedIn job URL (any form)."),
+    url: str = typer.Argument(
+        ...,
+        help="Job posting URL — LinkedIn, Greenhouse, Lever, SmartRecruiters, "
+        "or any page with JobPosting metadata.",
+    ),
     save: bool = typer.Option(
         False,
         "--save",
@@ -434,18 +254,19 @@ def fetch(
     debug: bool = typer.Option(
         False,
         "--debug",
-        help="Dump raw HTML from both sources and report candidate apply URLs.",
+        help="LinkedIn only: dump raw HTML from both sources and report "
+        "candidate apply URLs.",
     ),
 ) -> None:
-    """Scrape a LinkedIn job posting, then confirm before tracking it."""
+    """Scrape a job posting from a supported portal, then confirm tracking it."""
     if debug:
         _fetch_debug(url)
         return
 
     try:
-        data = fetch_linkedin_job(url)
+        data = portals.scrape_job(url)
     except ValueError as exc:
-        # Bad/unrecognized URL — normalize_linkedin_url couldn't find a job ID.
+        # A portal claimed the URL but couldn't find its identifiers in it.
         console.print(f"[bold red]✗[/] {exc}")
         raise typer.Exit(code=1)
     except Exception as exc:  # network / HTTP / parse failures
@@ -460,19 +281,21 @@ def fetch(
     body.append("\n   location: ", style="dim")
     body.append(data["location"] or "—", style="white")
     body.append("\n   apply:    ", style="dim")
-    if data["apply_type"] == "offsite" and data["apply_url"]:
+    if data["apply_url"]:
         body.append(
             data["apply_url"],
             style=Style(color="blue", underline=True, link=data["apply_url"]),
         )
     elif data["apply_type"] == "offsite_gated":
         body.append("External (URL hidden by LinkedIn sign-in)", style="yellow")
+    elif data["apply_type"] == "easy_apply":
+        body.append("Easy Apply (on LinkedIn)", style="yellow")
     else:
-        body.append("Easy Apply", style="yellow")
+        body.append("—", style="dim")
     body.append("\n   source:   ", style="dim")
     body.append(
-        data["original_linkedin_url"],
-        style=Style(color="blue", underline=True, link=data["original_linkedin_url"]),
+        data["canonical_url"],
+        style=Style(color="blue", underline=True, link=data["canonical_url"]),
     )
 
     desc = data["description_text"]
@@ -484,7 +307,7 @@ def fetch(
     console.print(
         Panel(
             body,
-            title="[bold green]🔍 LinkedIn posting[/]",
+            title=f"[bold green]🔍 {data['portal_label']} posting[/]",
             title_align="left",
             border_style="green",
             box=box.ROUNDED,
@@ -510,17 +333,7 @@ def fetch(
         console.print("[yellow]Job discarded.[/yellow]")
         raise typer.Exit()
 
-    init_db()
-    job = JobApplication(
-        title=data["title"] or "Unknown",
-        company=data["company"] or "Unknown",
-        location=data["location"],
-        url=data["original_linkedin_url"],
-        description=data["description_text"],
-    )
-    with get_session() as session:
-        session.add(job)
-        session.commit()
+    ws.add_scraped(data)
 
     console.print(
         "[bold green]Successfully added to your pipeline under 'Drafting'.[/bold green]"
@@ -574,9 +387,9 @@ def _role_experience(title: str, description: str) -> str:
 
 def _candidate_yoe() -> Optional[int]:
     """Best-effort total years of experience parsed from profile.md."""
-    if not PROFILE_PATH.exists():
+    if not ws.profile_path.exists():
         return None
-    text = PROFILE_PATH.read_text(encoding="utf-8")
+    text = ws.profile_path.read_text(encoding="utf-8")
     # Prefer an explicit "X+ years" statement; else infer span from year ranges.
     match = re.search(r"(\d{1,2})\s*\+?\s*years", text, re.IGNORECASE)
     if match:
@@ -660,19 +473,6 @@ def _ensure_ai_salary_preference() -> None:
 # --------------------------------------------------------------------------- #
 # status (Kanban board)
 # --------------------------------------------------------------------------- #
-# Applications older than this (in the Applied column) get a follow-up nudge.
-FOLLOW_UP_DAYS = 14
-
-
-def _days_since(dt: Optional[datetime]) -> Optional[int]:
-    """Whole days elapsed since ``dt`` (UTC). SQLite returns naive datetimes."""
-    if dt is None:
-        return None
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return max(0, (datetime.now(timezone.utc) - dt).days)
-
-
 def _job_card(job: JobApplication, accent: str, symbol: str, position: int) -> Panel:
     """Render a single application as a compact Kanban card.
 
@@ -731,7 +531,7 @@ def _backfill_salary_estimates(model: str = DEFAULT_AI_MODEL) -> None:
     an estimate it is not re-queried, keeping repeat ``status`` calls fast.
     """
     ai_enabled = bool(config.get_ai_salary_enabled())
-    with get_session() as session:
+    with ws.session() as session:
         missing = session.exec(
             select(JobApplication).where(JobApplication.salary_estimate.is_(None))
         ).all()
@@ -763,17 +563,12 @@ def _backfill_salary_estimates(model: str = DEFAULT_AI_MODEL) -> None:
 @app.command()
 def status() -> None:
     """Show the application pipeline as a multi-column Kanban board."""
-    init_db()
+    ws.init_db()
 
     # Ensure every listing has compensation info before rendering the board.
     _backfill_salary_estimates()
 
-    with get_session() as session:
-        jobs = session.exec(
-            select(JobApplication).order_by(
-                JobApplication.created_at, JobApplication.id
-            )
-        ).all()
+    jobs = ws.ordered_jobs()
 
     # Assign each job its 1-based display position (the handle used in commands).
     position_by_id = {job.id: i for i, job in enumerate(jobs, start=1)}
@@ -859,19 +654,13 @@ def move(
     ),
 ) -> None:
     """Move a job to a new status on the pipeline board."""
-    init_db()
-
-    # Normalize free-text input ("Ready to apply" -> "ready_to_apply") and
-    # validate against the known synonyms so a typo never corrupts the board.
-    new_status = re.sub(r"[\s-]+", "_", status.strip().lower())
-    if new_status not in STATUS_ALIASES:
-        valid = ", ".join(sorted(STATUS_ALIASES))
+    try:
+        result = ws.move_job(position, status)
+    except ValueError as exc:
+        # Unknown status — the message lists the valid synonyms.
         console.print(
             Panel(
-                Text(
-                    f"Unknown status '{status}'.\nValid values: {valid}",
-                    style="white",
-                ),
+                Text(str(exc).replace(". Valid values:", ".\nValid values:"), style="white"),
                 title="[bold red]✗ Invalid status[/]",
                 title_align="left",
                 border_style="red",
@@ -880,44 +669,25 @@ def move(
             )
         )
         raise typer.Exit(code=1)
-
-    job_id = _resolve_position(position)
-    if job_id is None:
+    except PositionError:
         raise _invalid_position(position)
 
-    column_key = _bucket(new_status)
-    applied_recorded = False
-    with get_session() as session:
-        job = session.get(JobApplication, job_id)
-        old_status = job.status
-        job.status = new_status
-        # First arrival in the Applied column stamps the application date,
-        # which drives the follow-up staleness hint on the board.
-        if column_key == "applied" and job.applied_at is None:
-            job.applied_at = datetime.now(timezone.utc)
-            applied_recorded = True
-        session.add(job)
-        session.commit()
-        company, title = job.company, job.title
-
     # Style the confirmation with the destination column's accent/symbol.
-    label, accent = next(
-        (lbl, acc) for key, lbl, acc in STATUS_COLUMNS if key == column_key
-    )
-    symbol = STATUS_SYMBOL[column_key]
+    label, accent = column_meta(result.column_key)
+    symbol = STATUS_SYMBOL[result.column_key]
 
     body = Text()
     body.append(f"{symbol} ", style=f"bold {accent}")
     body.append(f"[{position}]  ", style=f"bold {accent}")
-    body.append(company, style="bold white")
+    body.append(result.company, style="bold white")
     body.append("  ·  ", style="dim")
-    body.append(title, style="white")
+    body.append(result.title, style="white")
     body.append("\n   status: ", style="dim")
-    body.append(old_status, style="dim")
+    body.append(result.old_status, style="dim")
     body.append("  →  ", style="dim")
-    body.append(new_status, style=f"bold {accent}")
+    body.append(result.new_status, style=f"bold {accent}")
     body.append(f"   ({label} column)", style="dim")
-    if applied_recorded:
+    if result.applied_recorded:
         body.append("\n   applied date recorded — ", style="dim")
         body.append(datetime.now(timezone.utc).strftime("%Y-%m-%d"), style="cyan")
 
@@ -943,18 +713,14 @@ def show(
     ),
 ) -> None:
     """Show everything stored for one job, including the full description."""
-    init_db()
+    ws.init_db()
 
-    job_id = _resolve_position(position)
-    if job_id is None:
+    job = ws.job_at(position)
+    if job is None:
         raise _invalid_position(position)
-    with get_session() as session:
-        job = session.get(JobApplication, job_id)
 
     column_key = _bucket(job.status)
-    label, accent = next(
-        (lbl, acc) for key, lbl, acc in STATUS_COLUMNS if key == column_key
-    )
+    label, accent = column_meta(column_key)
     symbol = STATUS_SYMBOL[column_key]
 
     header = Text()
@@ -991,6 +757,12 @@ def show(
         rows.append(job.url, style=Style(color="blue", underline=True, link=job.url))
     else:
         rows.append("—", style="dim")
+    if job.apply_url and job.apply_url != job.url:
+        rows.append("\napply     ", style="dim")
+        rows.append(
+            job.apply_url,
+            style=Style(color="blue", underline=True, link=job.apply_url),
+        )
 
     parts: List[Text] = [header, Text(""), rows, Text("")]
     if job.notes:
@@ -1034,36 +806,23 @@ def note(
     ),
 ) -> None:
     """Add a dated note to a job — its timeline shows up in 'pushcv show'."""
-    init_db()
-
-    body_text = text.strip()
-    if not body_text:
+    try:
+        result = ws.add_note(position, text)
+    except ValueError:
         console.print("[bold red]✗[/] Note text is empty.")
         raise typer.Exit(code=1)
-
-    job_id = _resolve_position(position)
-    if job_id is None:
+    except PositionError:
         raise _invalid_position(position)
-
-    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    line = f"[{stamp}] {body_text}"
-    with get_session() as session:
-        job = session.get(JobApplication, job_id)
-        job.notes = f"{job.notes}\n{line}" if job.notes else line
-        session.add(job)
-        session.commit()
-        company, title = job.company, job.title
-        note_count = job.notes.count("\n") + 1
 
     body = Text()
     body.append("🗒  ", style="bold cyan")
     body.append(f"[{position}]  ", style="bold cyan")
-    body.append(company, style="bold white")
+    body.append(result.company, style="bold white")
     body.append("  ·  ", style="dim")
-    body.append(title, style="white")
-    body.append(f"\n   {line}", style="white")
+    body.append(result.title, style="white")
+    body.append(f"\n   {result.line}", style="white")
     body.append(
-        f"\n   {note_count} note(s) — see them all with 'pushcv show {position}'",
+        f"\n   {result.note_count} note(s) — see them all with 'pushcv show {position}'",
         style="dim",
     )
 
@@ -1084,7 +843,7 @@ def note(
 # --------------------------------------------------------------------------- #
 _EXPORT_FIELDS = [
     "position", "company", "title", "status", "location", "salary_estimate",
-    "url", "created_at", "applied_at", "notes", "description",
+    "url", "apply_url", "created_at", "applied_at", "notes", "description",
 ]
 
 
@@ -1098,36 +857,14 @@ def export(
     ),
 ) -> None:
     """Export every tracked job as JSON or CSV (stdout by default)."""
-    init_db()
+    ws.init_db()
 
     fmt_l = fmt.strip().lower()
     if fmt_l not in ("json", "csv"):
         console.print(f"[bold red]✗[/] Unknown format '{fmt}'. Use json or csv.")
         raise typer.Exit(code=1)
 
-    with get_session() as session:
-        jobs = session.exec(
-            select(JobApplication).order_by(
-                JobApplication.created_at, JobApplication.id
-            )
-        ).all()
-
-    records = [
-        {
-            "position": i,
-            "company": job.company,
-            "title": job.title,
-            "status": job.status,
-            "location": job.location,
-            "salary_estimate": job.salary_estimate,
-            "url": job.url,
-            "created_at": job.created_at.isoformat() if job.created_at else None,
-            "applied_at": job.applied_at.isoformat() if job.applied_at else None,
-            "notes": job.notes,
-            "description": job.description,
-        }
-        for i, job in enumerate(jobs, start=1)
-    ]
+    records = ws.export_records()
 
     if fmt_l == "json":
         payload = json.dumps(records, indent=2, ensure_ascii=False) + "\n"
@@ -1183,22 +920,20 @@ def draft(
     ),
 ) -> None:
     """Synthesize a tailored resume (or cover letter) for a tracked job."""
-    init_db()
+    ws.init_db()
     artifact = "cover letter" if cover_letter else "resume"
 
     # ----- a. Look up the job by display position ----- #
-    job_id = _resolve_position(position)
-    if job_id is None:
+    job = ws.job_at(position)
+    if job is None:
         raise _invalid_position(position)
-    with get_session() as session:
-        job = session.get(JobApplication, job_id)
 
     # ----- b. Read the master profile ----- #
-    if not PROFILE_PATH.exists():
+    if not ws.profile_path.exists():
         console.print(
             Panel(
                 Text(
-                    f"Profile not found at {PROFILE_PATH.resolve()}.\n"
+                    f"Profile not found at {ws.profile_path.resolve()}.\n"
                     "Run 'pushcv init' to create it, then fill in your "
                     "experience, skills, and projects.",
                     style="white",
@@ -1212,7 +947,7 @@ def draft(
         )
         raise typer.Exit(code=1)
 
-    user_profile = PROFILE_PATH.read_text(encoding="utf-8")
+    user_profile = ws.profile_path.read_text(encoding="utf-8")
 
     # ----- c. + d. Synthesize via the local AI engine ----- #
     with console.status(
@@ -1251,21 +986,18 @@ def draft(
         raise typer.Exit(code=1)
 
     # ----- e. Persist the draft to drafts/ ----- #
-    DRAFTS_DIR.mkdir(parents=True, exist_ok=True)
+    ws.drafts_dir.mkdir(parents=True, exist_ok=True)
     suffix = "cover_letter" if cover_letter else "resume"
-    out_path = DRAFTS_DIR / f"{job_id}_{_sanitize_filename(job.company)}_{suffix}.md"
+    out_path = ws.drafts_dir / f"{job.id}_{_sanitize_filename(job.company)}_{suffix}.md"
     out_path.write_text(draft_md, encoding="utf-8")
 
     # ----- f. Advance the job's status (resume only) ----- #
     # A drafted resume means the application is ready to submit; a cover letter
-    # is supplementary and leaves the pipeline state untouched.
-    if not cover_letter:
-        with get_session() as session:
-            db_job = session.get(JobApplication, job_id)
-            if db_job is not None:
-                db_job.status = "ready_to_apply"
-                session.add(db_job)
-                session.commit()
+    # is supplementary and leaves the pipeline state untouched. Only jobs still
+    # in the Drafting column advance (enforced by the service layer) —
+    # re-drafting a resume for a job that is already applied/interviewing/closed
+    # must never pull it back in the pipeline.
+    status_advanced = ws.mark_ready_to_apply(job.id) if not cover_letter else False
 
     # ----- g. Success panel ----- #
     body = Text()
@@ -1275,7 +1007,7 @@ def draft(
     body.append(job.title, style="white")
     body.append("\n\n  draft saved to  ", style="dim")
     body.append(str(out_path.resolve()), style="cyan")
-    if not cover_letter:
+    if status_advanced:
         body.append("\n  status         ", style="dim")
         body.append("ready_to_apply", style="bold green")
 
@@ -1305,16 +1037,11 @@ def delete(
     ),
 ) -> None:
     """Remove a job application (and its generated draft) from the pipeline."""
-    init_db()
+    ws.init_db()
 
-    job_id = _resolve_position(position)
-    if job_id is None:
+    job = ws.job_at(position)
+    if job is None:
         raise _invalid_position(position)
-
-    with get_session() as session:
-        job = session.get(JobApplication, job_id)
-        # Capture details before the row is gone (for confirmation + messaging).
-        company, title = job.company, job.title
 
     # Confirm — destructive and irreversible. The company/title is shown so a
     # mistyped position can't silently delete the wrong job. A declined or
@@ -1322,7 +1049,7 @@ def delete(
     if not yes:
         try:
             proceed = typer.confirm(
-                f"Remove [{position}] {company} · {title} from your pipeline?"
+                f"Remove [{position}] {job.company} · {job.title} from your pipeline?"
             )
         except typer.Abort:
             proceed = False
@@ -1330,30 +1057,22 @@ def delete(
             console.print("[yellow]Deletion cancelled.[/yellow]")
             raise typer.Exit()
 
-    with get_session() as session:
-        job = session.get(JobApplication, job_id)
-        if job is not None:
-            session.delete(job)
-            session.commit()
-
-    # Remove any generated draft(s) for this job (drafts/{id}_*.md).
-    removed_drafts = []
-    for draft_file in DRAFTS_DIR.glob(f"{job_id}_*"):
-        try:
-            draft_file.unlink()
-            removed_drafts.append(draft_file.name)
-        except OSError:
-            pass
+    # Delete by the id resolved pre-confirmation, so the prompt and the
+    # deletion can never disagree about which job is meant.
+    try:
+        result = ws.delete_job_id(job.id, position=position)
+    except PositionError:
+        raise _invalid_position(position)
 
     body = Text()
     body.append("🗑️  ", style="bold red")
     body.append(f"[{position}]  ", style="bold white")
-    body.append(f"{company}", style="white")
+    body.append(f"{result.company}", style="white")
     body.append("  ·  ", style="dim")
-    body.append(title, style="white")
-    if removed_drafts:
+    body.append(result.title, style="white")
+    if result.removed_drafts:
         body.append("\n\n  also removed draft: ", style="dim")
-        body.append(", ".join(removed_drafts), style="cyan")
+        body.append(", ".join(result.removed_drafts), style="cyan")
 
     console.print(
         Panel(
