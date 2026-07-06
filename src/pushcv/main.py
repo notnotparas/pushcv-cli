@@ -8,6 +8,7 @@ pipeline with a high-fidelity Rich text user interface. All data operations
 import csv
 import io
 import json
+import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -53,8 +54,10 @@ from pushcv import config
 # schema migrations, positional addressing, and every pipeline operation.
 ws = Workspace()
 
-# Default local model id (must match a model loaded in the Lemonade server).
-DEFAULT_AI_MODEL = "Qwen3-8B-GGUF"
+# Default local model id (must match a model available on the local inference
+# server — see PUSHCV_AI_BASE in ai_engine.py). Override with PUSHCV_AI_MODEL,
+# e.g. PUSHCV_AI_MODEL=qwen3:8b for Ollama.
+DEFAULT_AI_MODEL = os.getenv("PUSHCV_AI_MODEL", "Qwen3-8B-GGUF")
 
 
 def _invalid_position(position: int) -> "typer.Exit":
