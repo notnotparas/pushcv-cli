@@ -8,7 +8,8 @@ leaving your machine.
 Built with [Typer](https://typer.tiangolo.com/) · [Rich](https://rich.readthedocs.io/)
 · [SQLModel](https://sqlmodel.tiangolo.com/) on a local SQLite database.
 
-![pushcv — the application pipeline as a Kanban board in the terminal](pushcv-cli.png)
+<!-- Absolute URL so the image renders on the PyPI project page too. -->
+![pushcv — the application pipeline as a Kanban board in the terminal](https://raw.githubusercontent.com/notnotparas/pushcv-cli/master/pushcv-cli.png)
 
 > **Local-first by design.** Your applications live in a single SQLite file on
 > your disk. Resume tailoring runs on a model on *your* laptop. The only network
@@ -211,8 +212,9 @@ Everything pushcv writes lives in your working directory:
 |------|----------|
 | `pushcv.db` | Your applications (SQLite). |
 | `profile.md` | Your master profile — the source of truth for resume tailoring. |
-| `.pushcv.json` | Per-workspace preferences (e.g. AI salary toggle). |
+| `.pushcv.json` | Per-workspace preferences (AI salary toggle, `salary_estimates_enabled`). |
 | `drafts/` | Generated resume & cover-letter Markdown files. |
+| `.env` *(optional)* | Local overrides such as `PUSHCV_AI_BASE` / `PUSHCV_AI_KEY`. |
 
 All of these are git-ignored by default — they're personal and never meant to be
 committed. A filled-in reference, [`profile.example.md`](profile.example.md), is
@@ -237,7 +239,7 @@ included in the repo to show what a complete profile looks like.
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"     # editable install + test tooling
 pushcv --help
-pytest                       # run the helper test suite
+pytest                       # run the test suite
 ```
 
 Project layout (src/ layout):
@@ -247,7 +249,7 @@ pushcv-cli/
 ├── pyproject.toml        # PEP 621 metadata, pinned deps, `pushcv` entry point
 ├── README.md · LICENSE · CONTRIBUTING.md · .gitignore
 ├── profile.example.md    # filled-in reference profile
-├── tests/                # unit tests for the pure helpers
+├── tests/                # helpers, portal parsers, and CLI command flows
 └── src/pushcv/
     ├── __init__.py       # version
     ├── main.py           # Typer app — the terminal presentation layer
@@ -276,8 +278,9 @@ These are scoped to be approachable first PRs; open an issue to claim one:
   ride the generic JSON-LD fallback), and Workday is the big-enterprise prize.
   A portal module just needs `matches(url)` and `fetch_job(url)` returning the
   normalized dict from [portals/base.py](src/pushcv/portals/base.py).
-- **Expand the test suite** — `tests/` covers the pure helpers today; the
-  scrapers, salary extraction, and command flows still need coverage.
+- **Expand the test suite** — helpers, portal parsers, and the main command
+  flows are covered; the LinkedIn scraper's HTML paths and the AI engine
+  still aren't.
 - **Optional dependency extras** (`pushcv[ai]`) so a minimal install doesn't
   pull the LLM stack.
 - **PDF export** for drafted resumes/cover letters (e.g. via pandoc or typst).

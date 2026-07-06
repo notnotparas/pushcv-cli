@@ -50,10 +50,15 @@ pushcv init && pushcv add "Test Co" "Engineer" && pushcv status
 pytest
 ```
 
-The suite covers the **pure helpers** (salary parsing, URL normalization,
-currency inference) — the parts with no network or database dependency. Adding
-more of these is the single most valuable contribution right now; see
-`tests/test_helpers.py` for the pattern.
+The suite covers three layers, each with a file to use as the pattern:
+
+- **Pure helpers** (salary parsing, URL normalization, currency inference) —
+  `tests/test_helpers.py`;
+- **Portal parsers** with fixture payloads, no network — `tests/test_portals.py`;
+- **Command flows** through Typer's `CliRunner` against a throwaway
+  workspace — `tests/test_cli.py`.
+
+Every new portal or bug fix should land with a test in the matching layer.
 
 ## Coding style
 
