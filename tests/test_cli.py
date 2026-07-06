@@ -62,6 +62,33 @@ def test_note_counts_entries_not_lines(workspace):
     assert "1 note(s)" in result.output
 
 
+def test_workspace_dotenv_overrides_ai_settings(tmp_path, monkeypatch):
+    """Regression for #9: a .env in the *working directory* must override the
+    AI server address and model for installed users — no-arg load_dotenv()
+    searches from the package directory and never found it."""
+    import importlib
+    import os
+
+    from pushcv import ai_engine
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text(
+        "PUSHCV_AI_BASE=http://localhost:9999/v1\nPUSHCV_AI_MODEL=test-model\n"
+    )
+    try:
+        importlib.reload(ai_engine)
+        assert ai_engine.LOCAL_API_BASE == "http://localhost:9999/v1"
+        importlib.reload(main)
+        assert main.DEFAULT_AI_MODEL == "test-model"
+    finally:
+        # load_dotenv mutates os.environ for the whole process — scrub and
+        # restore both modules so later tests see the defaults.
+        for key in ("PUSHCV_AI_BASE", "PUSHCV_AI_KEY", "PUSHCV_AI_MODEL"):
+            os.environ.pop(key, None)
+        importlib.reload(ai_engine)
+        importlib.reload(main)
+
+
 def test_move_rejects_unknown_status(workspace):
     runner.invoke(main.app, ["add", "Acme", "Engineer"])
     result = runner.invoke(main.app, ["move", "1", "definitely-not-a-status"])

@@ -214,7 +214,7 @@ Everything pushcv writes lives in your working directory:
 | `profile.md` | Your master profile — the source of truth for resume tailoring. |
 | `.pushcv.json` | Per-workspace preferences (AI salary toggle, `salary_estimates_enabled`). |
 | `drafts/` | Generated resume & cover-letter Markdown files. |
-| `.env` *(optional)* | Local overrides such as `PUSHCV_AI_BASE` / `PUSHCV_AI_KEY`. |
+| `.env` *(optional)* | Local overrides: `PUSHCV_AI_BASE` (server), `PUSHCV_AI_MODEL` (model id), `PUSHCV_AI_KEY`. |
 
 All of these are git-ignored by default — they're personal and never meant to be
 committed. A filled-in reference, [`profile.example.md`](profile.example.md), is
