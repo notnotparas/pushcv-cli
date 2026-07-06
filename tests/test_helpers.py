@@ -9,9 +9,14 @@ import pytest
 from pushcv.ai_engine import (
     _clean_estimate_line,
     _condense_estimate,
+    _strip_think,
     currency_for_location,
 )
-from pushcv.scraper import _linkedin_job_id, normalize_linkedin_url
+from pushcv.scraper import (
+    _linkedin_job_id,
+    _unwrap_apply_url,
+    normalize_linkedin_url,
+)
 from pushcv.search import _format_amount, _parse_amounts, _trim_outliers
 
 
@@ -112,3 +117,40 @@ def test_clean_estimate_line_strips_trailing_explanation():
 
 def test_condense_estimate_handles_empty():
     assert _condense_estimate("") == "Estimate unavailable"
+
+
+# --------------------------------------------------------------------------- #
+# Regressions from the July 2026 full-code review
+# --------------------------------------------------------------------------- #
+def test_parse_amounts_does_not_read_scale_letter_from_a_word():
+    # "monthly" must not be read as the "m" (million) unit: $5,000 stays $5,000
+    # (below the plausibility floor), not $5 billion.
+    assert _parse_amounts("earns $5,000 monthly", "$") == []
+
+
+def test_parse_amounts_supports_yen():
+    # ¥ was listed in the plausibility floors but missing from the money regex,
+    # so JPY figures could never be extracted.
+    assert _parse_amounts("pays ¥12,000,000 annually", "¥") == [12000000.0]
+
+
+def test_parse_amounts_scale_suffix_still_works_at_word_end():
+    assert _parse_amounts("range $120k-$140k.", "$") == [120000.0, 140000.0]
+
+
+def test_strip_think_removes_reasoning_block():
+    raw = "<think>Let me reason about pay bands...</think>\n$120k - $140k base"
+    assert _condense_estimate(raw) == "$120k - $140k base"
+
+
+def test_strip_think_drops_unclosed_reasoning():
+    # A response truncated mid-reasoning contains no usable answer.
+    assert _strip_think("<think>still reasoning about the range") == ""
+
+
+def test_unwrap_apply_url_ignores_lookalike_hosts():
+    # Only linkedin.com (and subdomains) safety redirects are unwrapped.
+    lookalike = "https://evillinkedin.com/safety/go?url=https%3A%2F%2Fx.com"
+    assert _unwrap_apply_url(lookalike) == lookalike
+    real = "https://www.linkedin.com/safety/go?url=https%3A%2F%2Fjobs.acme.com%2F1"
+    assert _unwrap_apply_url(real) == "https://jobs.acme.com/1"

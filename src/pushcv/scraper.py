@@ -350,7 +350,9 @@ def _unwrap_apply_url(url: Optional[str]) -> Optional[str]:
         return None
     split = urlsplit(url)
     host = (split.hostname or "").lower()
-    if host.endswith("linkedin.com") and "/safety/go" in split.path:
+    if (
+        host == "linkedin.com" or host.endswith(".linkedin.com")
+    ) and "/safety/go" in split.path:
         target = parse_qs(split.query).get("url", [None])[0]
         if target:
             return unquote(target)
@@ -536,26 +538,43 @@ def fetch_linkedin_job(
             fields["is_offsite"] = True
 
     # ----- 1. Canonical guest job-view page (JSON-LD when not walled) ----- #
-    response = session.get(canonical_url, timeout=timeout)
-    response.raise_for_status()
-    _absorb(response.text)
+    # LinkedIn intermittently answers the canonical page with 429/999 for
+    # guests; that must not abort the scrape, because the guest fragment
+    # endpoint below often still works. Remember the failure and only surface
+    # it if the fallback also produces nothing.
+    canonical_error: Optional[Exception] = None
+    try:
+        response = session.get(canonical_url, timeout=timeout)
+        response.raise_for_status()
+        _absorb(response.text)
+    except Exception as exc:
+        canonical_error = exc
 
     # ----- 2. Guest fragment fallback (bypasses the auth-wall modal) ----- #
-    # Needed when the canonical page was walled (core fields empty) OR when the
-    # off-site apply URL is still unresolved — the authoritative apply link
-    # (<code id="applyUrl">) is only emitted by the guest fragment endpoint.
+    # Needed when the canonical page was walled/refused (core fields empty) OR
+    # when the off-site apply URL is still unresolved — the authoritative apply
+    # link (<code id="applyUrl">) is only emitted by the guest fragment endpoint.
     if (
         not fields["title"]
         or not fields["description_text"]
         or not fields["apply_url"]
     ):
-        guest_response = session.get(
-            LINKEDIN_GUEST_API.format(job_id=job_id),
-            timeout=timeout,
-            headers={"Referer": canonical_url},
-        )
-        if guest_response.ok and guest_response.text.strip():
-            _absorb(guest_response.text)
+        try:
+            guest_response = session.get(
+                LINKEDIN_GUEST_API.format(job_id=job_id),
+                timeout=timeout,
+                headers={"Referer": canonical_url},
+            )
+            if guest_response.ok and guest_response.text.strip():
+                _absorb(guest_response.text)
+        except Exception:
+            # A guest-endpoint failure only matters if the canonical page also
+            # yielded nothing — handled below.
+            pass
+
+    # Both sources failed to produce even a title: report the original error.
+    if fields["title"] is None and canonical_error is not None:
+        raise canonical_error
 
     # Classify the application route. An off-site signal with no recoverable URL
     # means LinkedIn gated it behind sign-in (not Easy Apply).

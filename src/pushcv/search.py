@@ -85,10 +85,12 @@ _UNIT_SCALE = {
 
 # A currency-symbol-prefixed amount with an optional scale word, e.g.
 # "₹44.2 lakhs", "$120k", "£85,000", "€90k". Requiring the symbol filters out
-# stray counts/years ("139 profiles", "2026").
+# stray counts/years ("139 profiles", "2026"). The trailing lookahead stops a
+# scale letter from matching the start of an ordinary word — without it
+# "$5,000 monthly" would read as $5,000 *million*.
 _MONEY_RE = re.compile(
-    r"(?P<sym>[$€£₹])\s?(?P<num>\d[\d,]*(?:\.\d+)?)\s?"
-    r"(?P<unit>lakhs?|lpa|lac|crores?|cr|thousand|million|mn|[kml])?",
+    r"(?P<sym>[$€£₹¥])\s?(?P<num>\d[\d,]*(?:\.\d+)?)\s?"
+    r"(?P<unit>lakhs?|lpa|lac|crores?|cr|thousand|million|mn|[kml])?(?![A-Za-z])",
     re.IGNORECASE,
 )
 

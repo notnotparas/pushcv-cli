@@ -6,6 +6,7 @@ local-first — no data leaves the machine.
 """
 from __future__ import annotations
 
+import os
 import re
 from typing import Optional
 
@@ -15,10 +16,11 @@ from dotenv import load_dotenv
 # Pull any local overrides (e.g. PUSHCV_AI_BASE) from a .env in the workspace.
 load_dotenv()
 
-# Local OpenAI-compatible inference server. The api_key is a non-secret
+# Local OpenAI-compatible inference server, overridable via PUSHCV_AI_BASE /
+# PUSHCV_AI_KEY (environment or workspace .env). The api_key is a non-secret
 # placeholder the local server expects; nothing is sent to a remote provider.
-LOCAL_API_BASE = "http://localhost:13305/v1"
-LOCAL_API_KEY = "lemonade-local"
+LOCAL_API_BASE = os.getenv("PUSHCV_AI_BASE", "http://localhost:13305/v1")
+LOCAL_API_KEY = os.getenv("PUSHCV_AI_KEY", "lemonade-local")
 
 # Request timeouts (seconds). Local generation on CPU can legitimately take
 # minutes (model load + long completion), but an unbounded call hangs forever
@@ -155,7 +157,7 @@ def _clean_estimate_line(line: str) -> str:
 
 def _condense_estimate(text: str) -> str:
     """Reduce a model response to a single clean compensation line."""
-    text = _strip_code_fence(text.strip())
+    text = _strip_code_fence(_strip_think(text.strip()))
     lines = [line.strip(" -*`\"'") for line in text.splitlines() if line.strip()]
     if not lines:
         return "Estimate unavailable"
@@ -228,6 +230,24 @@ def estimate_compensation(
         )
 
 
+# Reasoning models (the default Qwen3 included) may prepend a chain-of-thought
+# block to the content. It must never leak into drafts or estimates.
+_THINK_RE = re.compile(r"<think>.*?</think>", re.IGNORECASE | re.DOTALL)
+
+
+def _strip_think(text: str) -> str:
+    """Remove reasoning ``<think>...</think>`` blocks from model output.
+
+    A response truncated mid-reasoning (opened but never closed tag) contains
+    no usable answer, so everything from the opening tag on is dropped.
+    """
+    text = _THINK_RE.sub("", text)
+    unclosed = re.search(r"<think>", text, re.IGNORECASE)
+    if unclosed:
+        text = text[: unclosed.start()]
+    return text.strip()
+
+
 def _strip_code_fence(text: str) -> str:
     """Remove a wrapping Markdown code fence the model often adds.
 
@@ -272,13 +292,13 @@ def generate_tailored_resume(
                 {"role": "user", "content": user_prompt},
             ],
         )
-        content = response.choices[0].message.content
-        if not content or not content.strip():
+        content = _strip_think(response.choices[0].message.content or "")
+        if not content:
             return (
                 "ERROR: The local model returned an empty response. "
                 "Verify the model is loaded and try again."
             )
-        return _strip_code_fence(content.strip())
+        return _strip_code_fence(content)
     except Exception as exc:  # connection refused, timeout, bad model, etc.
         return (
             "ERROR: Could not generate the resume. Failed to reach the local AI "
@@ -322,13 +342,13 @@ def generate_cover_letter(
                 {"role": "user", "content": user_prompt},
             ],
         )
-        content = response.choices[0].message.content
-        if not content or not content.strip():
+        content = _strip_think(response.choices[0].message.content or "")
+        if not content:
             return (
                 "ERROR: The local model returned an empty response. "
                 "Verify the model is loaded and try again."
             )
-        return _strip_code_fence(content.strip())
+        return _strip_code_fence(content)
     except Exception as exc:  # connection refused, timeout, bad model, etc.
         return (
             "ERROR: Could not generate the cover letter. Failed to reach the "
