@@ -66,30 +66,24 @@ more of these is the single most valuable contribution right now; see
 
 ## Adding a new job board to `fetch`
 
-This is the most-requested feature and a great first PR. LinkedIn is scraped in
-[`src/pushcv/scraper.py`](src/pushcv/scraper.py); **Greenhouse** and **Lever**
-are easier — both expose clean public JSON APIs
-(`boards-api.greenhouse.io`, `api.lever.co`), no impersonation needed.
+This is the most-requested feature and a great first PR. Portals live in
+[`src/pushcv/portals/`](src/pushcv/portals/) — one module per board, registered
+in the `PORTALS` tuple in
+[`portals/__init__.py`](src/pushcv/portals/__init__.py). LinkedIn, Greenhouse,
+Lever, and SmartRecruiters are built in; **Ashby** and **Workable** are natural
+next adapters (both expose public JSON APIs, no impersonation needed).
 
-A board fetcher must return a dict with the **same shape** as
-`fetch_linkedin_job`, so the `fetch` command can consume it unchanged:
+A portal module needs three things:
 
-```python
-{
-    "title": str | None,
-    "company": str | None,
-    "location": str | None,
-    "apply_url": str | None,
-    "apply_type": "offsite" | "offsite_gated" | "easy_apply",
-    "is_easy_apply": bool,
-    "description_text": str | None,
-    "original_linkedin_url": str,   # the canonical source URL
-}
-```
-
-Add a URL-pattern check so `fetch` can dispatch to the right fetcher, and raise
-`ValueError` for a URL you can't parse (the command turns that into a clean
-error message).
+1. `matches(url) -> bool` — does this URL belong to your board?
+2. `fetch_job(url, *, timeout) -> dict` — return the normalized posting dict
+   built by `posting(...)` in [`portals/base.py`](src/pushcv/portals/base.py).
+   Raise `ValueError` for a URL you claim but can't parse (the command turns
+   that into a clean error message).
+3. **Tests without network** — keep payload normalization in a pure
+   `parse_payload(payload, *, url)` function and exercise it with a
+   fixture-shaped dict in [`tests/test_portals.py`](tests/test_portals.py)
+   (see the Greenhouse/Lever/SmartRecruiters tests for the pattern).
 
 ## Pull request process
 

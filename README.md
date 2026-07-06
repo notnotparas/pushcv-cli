@@ -24,8 +24,13 @@ Built with [Typer](https://typer.tiangolo.com/) · [Rich](https://rich.readthedo
 - ⏱ **Follow-up nudges** — pushcv records when you apply and flags stale
   applications right on the board ("applied 15d ago — follow up?"). Keep a
   dated timeline per job with `pushcv note`.
-- 🔎 **Scrape LinkedIn postings** with one command — TLS/browser impersonation
-  (via `curl_cffi`) reaches the public guest view even when the site fights back.
+- 🔎 **Scrape postings from LinkedIn, Greenhouse, Lever, and SmartRecruiters**
+  with one command — the ATS boards via their public JSON APIs, LinkedIn via
+  TLS/browser impersonation (`curl_cffi`) that reaches the public guest view
+  even when the site fights back. Anything else falls back to a best-effort
+  schema.org `JobPosting` parse (covers Ashby, Workable, and most career
+  sites). A LinkedIn posting whose apply button leads to a supported ATS is
+  automatically chain-scraped for the fuller, canonical description.
 - 💰 **Salary estimates** *(experimental)* grounded in live web data
   (DuckDuckGo), with an optional local-AI synthesis pass for a tighter,
   role-anchored range.
@@ -79,6 +84,8 @@ pushcv init                                   # create ./pushcv.db + ./profile.m
 # → fill in profile.md (your name, experience, skills) before drafting
 pushcv add "Acme Corp" "Senior Engineer"      # track a job manually
 pushcv fetch "https://www.linkedin.com/jobs/view/<id>/"   # …or scrape one
+# fetch also understands Greenhouse, Lever, and SmartRecruiters URLs —
+# and falls back to JobPosting metadata on any other careers page
 pushcv status                                 # see your pipeline (Kanban board)
 pushcv draft 1                                # tailor a resume for job #1
 pushcv move 1 applied                         # advance it on the board
@@ -101,7 +108,7 @@ folder (e.g. `~/job-hunt/`) and run `pushcv` from there.
 |---------|--------------|
 | `pushcv init` | Create the local `pushcv.db` and a `profile.md` template. |
 | `pushcv add <company> <title> [--url]` | Add a job manually (starts in *Drafting*). |
-| `pushcv fetch <url> [--save] [--debug]` | Scrape a LinkedIn posting; preview, then confirm to save. `--save` skips the prompt; `--debug` dumps raw HTML for troubleshooting. |
+| `pushcv fetch <url> [--save] [--debug]` | Scrape a job posting (LinkedIn, Greenhouse, Lever, SmartRecruiters, or any page with JobPosting metadata); preview, then confirm to save. `--save` skips the prompt; `--debug` (LinkedIn only) dumps raw HTML for troubleshooting. |
 | `pushcv status` | Render the Kanban board. Backfills any missing salary estimates. |
 | `pushcv move <n> <status>` | Move the job at position `n` to a new status — a column (`drafting`, `applied`, `interviewing`, `closed`) or a synonym (`offer`, `rejected`, `onsite`, `ghosted`, …). |
 | `pushcv show <n>` | Show everything stored for the job at position `n` — status, dates, notes, and the full scraped description. |
@@ -167,6 +174,7 @@ A single `job_application` table (local SQLite, `pushcv.db`):
 | `company` | VARCHAR | Required. |
 | `title` | VARCHAR | Required. |
 | `url` | TEXT | Posting link (optional). |
+| `apply_url` | TEXT | Where to actually apply, when it differs from `url` — e.g. a LinkedIn posting whose application lives on the employer's ATS (optional). |
 | `location` | TEXT | From `fetch` (optional). |
 | `description` | TEXT | Scraped job description (optional). |
 | `salary_estimate` | VARCHAR | Web/AI compensation estimate (optional). |
@@ -220,9 +228,13 @@ pushcv-cli/
 ├── tests/                # unit tests for the pure helpers
 └── src/pushcv/
     ├── __init__.py       # version
-    ├── main.py           # Typer app, DB engine, all commands, Kanban UI
+    ├── main.py           # Typer app — the terminal presentation layer
+    ├── core.py           # service layer: Workspace, statuses, positions,
+    │                     #   migrations (shared with pushcv-ui)
     ├── models.py         # SQLModel table (JobApplication)
     ├── scraper.py        # LinkedIn fetch/parse (curl_cffi + BeautifulSoup)
+    ├── portals/          # multi-portal registry: greenhouse, lever,
+    │                     #   smartrecruiters, linkedin, generic JSON-LD fallback
     ├── search.py         # DuckDuckGo salary search + extraction
     ├── ai_engine.py      # LiteLLM → local model (resume + salary synthesis)
     └── config.py         # per-workspace preferences (.pushcv.json)
@@ -236,11 +248,12 @@ issue to discuss substantial changes before you start.
 
 These are scoped to be approachable first PRs; open an issue to claim one:
 
-- **More job boards for `fetch`** — Greenhouse and Lever first: both expose
-  clean public JSON APIs (`boards-api.greenhouse.io`, `api.lever.co`), far
-  friendlier than LinkedIn, and they're where most external apply links land
-  anyway. A fetcher just needs to return the same dict shape as
-  `fetch_linkedin_job` in [scraper.py](src/pushcv/scraper.py).
+- **More job boards for `fetch`** — Greenhouse, Lever, and SmartRecruiters
+  are built in (see [src/pushcv/portals/](src/pushcv/portals/)); Ashby and
+  Workable are natural next adapters (both have public JSON APIs and currently
+  ride the generic JSON-LD fallback), and Workday is the big-enterprise prize.
+  A portal module just needs `matches(url)` and `fetch_job(url)` returning the
+  normalized dict from [portals/base.py](src/pushcv/portals/base.py).
 - **Expand the test suite** — `tests/` covers the pure helpers today; the
   scrapers, salary extraction, and command flows still need coverage.
 - **Optional dependency extras** (`pushcv[ai]`) so a minimal install doesn't

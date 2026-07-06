@@ -33,6 +33,12 @@ class JobApplication(SQLModel, table=True):
     # Optional URL stored as TEXT (no length limit).
     url: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
 
+    # Where to actually apply, when it differs from `url` (e.g. a LinkedIn
+    # posting whose application happens on the employer's ATS).
+    apply_url: Optional[str] = Field(
+        default=None, sa_column=Column(Text, nullable=True)
+    )
+
     # Optional scraped metadata (e.g. from `pushcv fetch`), stored as TEXT.
     location: Optional[str] = Field(
         default=None, sa_column=Column(Text, nullable=True)
