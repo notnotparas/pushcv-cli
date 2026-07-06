@@ -98,6 +98,17 @@ def column_meta(column_key: str) -> Tuple[str, str]:
     )
 
 
+def _http_url(value: Any) -> Optional[str]:
+    """Pass through http(s) URLs; reject anything else from scraped data.
+
+    Scraped postings control these values — a javascript:/data:/file: scheme
+    must never be stored where a frontend would render it as a clickable link.
+    """
+    if isinstance(value, str) and value.lower().startswith(("http://", "https://")):
+        return value
+    return None
+
+
 def days_since(dt: Optional[datetime]) -> Optional[int]:
     """Whole days elapsed since ``dt`` (UTC). SQLite returns naive datetimes."""
     if dt is None:
@@ -316,8 +327,8 @@ class Workspace:
     def add_scraped(self, data: Dict[str, Any]) -> Tuple[JobApplication, int]:
         """Persist a normalized scraped posting (see ``pushcv.portals``)."""
         self.init_db()
-        apply_url = data.get("apply_url")
-        canonical = data.get("canonical_url")
+        apply_url = _http_url(data.get("apply_url"))
+        canonical = _http_url(data.get("canonical_url"))
         job = JobApplication(
             title=data.get("title") or "Unknown",
             company=data.get("company") or "Unknown",

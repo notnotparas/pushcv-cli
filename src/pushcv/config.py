@@ -16,6 +16,12 @@ CONFIG_PATH = Path(".pushcv.json")
 # Three states — True (use AI), False (use web extraction), None (not yet asked).
 AI_SALARY_KEY = "ai_salary_enabled"
 
+# Preference key: whether to estimate salaries at all. Salary estimation is
+# the one feature that sends job metadata (title/company/location) to an
+# external service (DuckDuckGo); privacy-conscious users can switch it off
+# entirely by setting this to false in .pushcv.json.
+SALARY_ESTIMATES_KEY = "salary_estimates_enabled"
+
 
 def load_config() -> Dict[str, Any]:
     """Return the workspace config, or an empty dict if absent/unreadable."""
@@ -43,3 +49,13 @@ def set_ai_salary_enabled(enabled: bool) -> None:
     config = load_config()
     config[AI_SALARY_KEY] = enabled
     save_config(config)
+
+
+def get_salary_estimates_enabled() -> bool:
+    """Whether salary estimation (and its web lookups) is enabled at all.
+
+    Defaults to True; only an explicit ``"salary_estimates_enabled": false``
+    in .pushcv.json turns it off.
+    """
+    value = load_config().get(SALARY_ESTIMATES_KEY)
+    return value if isinstance(value, bool) else True

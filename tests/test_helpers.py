@@ -148,6 +148,32 @@ def test_strip_think_drops_unclosed_reasoning():
     assert _strip_think("<think>still reasoning about the range") == ""
 
 
+def test_csv_safe_neutralizes_formula_injection():
+    from pushcv.main import _csv_safe
+
+    # Scraped titles/companies could open with a formula trigger.
+    assert _csv_safe("=HYPERLINK(\"http://evil\")") == "'=HYPERLINK(\"http://evil\")"
+    assert _csv_safe("@SUM(A1)") == "'@SUM(A1)"
+    assert _csv_safe("Acme Corp") == "Acme Corp"
+    assert _csv_safe(None) is None
+
+
+def test_add_scraped_rejects_non_http_urls(tmp_path):
+    from pushcv.core import Workspace
+
+    ws = Workspace(tmp_path)
+    job, _ = ws.add_scraped(
+        {
+            "title": "Engineer",
+            "company": "Acme",
+            "canonical_url": "javascript:alert(1)",
+            "apply_url": "data:text/html,<script>alert(1)</script>",
+        }
+    )
+    assert job.url is None
+    assert job.apply_url is None
+
+
 def test_unwrap_apply_url_ignores_lookalike_hosts():
     # Only linkedin.com (and subdomains) safety redirects are unwrapped.
     lookalike = "https://evillinkedin.com/safety/go?url=https%3A%2F%2Fx.com"

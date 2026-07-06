@@ -529,7 +529,13 @@ def _backfill_salary_estimates(model: str = DEFAULT_AI_MODEL) -> None:
     :func:`_estimate_salary`). Best-effort: any failure (no network, model down,
     rate limit) is skipped so it never blocks rendering the board. Once a job has
     an estimate it is not re-queried, keeping repeat ``status`` calls fast.
+
+    Estimation sends job title/company/location to a web search engine; the
+    ``salary_estimates_enabled: false`` workspace preference disables it (and
+    every network call it makes) entirely.
     """
+    if not config.get_salary_estimates_enabled():
+        return
     ai_enabled = bool(config.get_ai_salary_enabled())
     with ws.session() as session:
         missing = session.exec(
@@ -847,6 +853,18 @@ _EXPORT_FIELDS = [
 ]
 
 
+def _csv_safe(value):
+    """Neutralize spreadsheet formula injection in CSV exports.
+
+    Scraped titles/companies are attacker-influenced; a cell starting with
+    =, +, -, or @ executes as a formula when the CSV is opened in Excel or
+    Sheets. A leading apostrophe forces text interpretation (OWASP guidance).
+    """
+    if isinstance(value, str) and value.startswith(("=", "+", "-", "@", "\t", "\r")):
+        return "'" + value
+    return value
+
+
 @app.command()
 def export(
     fmt: str = typer.Option(
@@ -872,7 +890,9 @@ def export(
         buf = io.StringIO()
         writer = csv.DictWriter(buf, fieldnames=_EXPORT_FIELDS)
         writer.writeheader()
-        writer.writerows(records)
+        writer.writerows(
+            [{k: _csv_safe(v) for k, v in record.items()} for record in records]
+        )
         payload = buf.getvalue()
 
     if output is None:

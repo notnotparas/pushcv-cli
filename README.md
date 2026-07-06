@@ -12,8 +12,11 @@ Built with [Typer](https://typer.tiangolo.com/) · [Rich](https://rich.readthedo
 
 > **Local-first by design.** Your applications live in a single SQLite file on
 > your disk. Resume tailoring runs on a model on *your* laptop. The only network
-> calls are (1) scraping a posting you explicitly point it at and (2) an optional
-> web search for salary data — both off by default until you ask.
+> calls are (1) scraping a posting you explicitly point it at and (2) a web
+> search (DuckDuckGo) for salary data, which sends the job's title, company,
+> and location. Salary lookups run when `pushcv status` fills in missing
+> estimates — turn them off entirely with `"salary_estimates_enabled": false`
+> in `.pushcv.json`.
 
 ---
 
@@ -173,6 +176,11 @@ Estimates are a **ballpark**, not a quote — they vary with the live search
 results. The cited band is the signal, not the exact digits. Currency is
 inferred from the job's location (INR, USD, GBP, EUR, …).
 
+**Privacy note:** estimation is the one feature that talks to an external
+service — the job's title, company, and location go to DuckDuckGo as a search
+query. To disable salary estimation (and its network calls) completely, add
+`"salary_estimates_enabled": false` to `.pushcv.json`.
+
 ## Data model
 
 A single `job_application` table (local SQLite, `pushcv.db`):
@@ -216,7 +224,12 @@ included in the repo to show what a complete profile looks like.
 - The scraper is for **personal use** on postings you're applying to. Respect the
   target site's Terms of Service and rate limits; don't hammer endpoints.
 - Salary numbers are estimates aggregated from public web data — verify against
-  the cited sources before relying on them.
+  the cited sources before relying on them. Disable the lookups entirely with
+  `"salary_estimates_enabled": false` in `.pushcv.json`.
+- pushcv loads a `.env` file from the **working directory** (for
+  `PUSHCV_AI_BASE` overrides). Treat workspaces like you treat shell rc files:
+  don't run pushcv's AI features inside a folder you don't trust — a planted
+  `.env` could point the AI client at a server you don't control.
 
 ## Development
 
