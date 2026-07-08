@@ -1,17 +1,91 @@
+name: Release
+
 # Publishes `pushcv` to PyPI when a v* tag is pushed, via PyPI Trusted
 # Publishing (OIDC) — no API tokens stored in the repo. One-time setup on
 # pypi.org: Account → Publishing → add a (pending) publisher for this repo
 # with workflow file `release.yml` and environment `pypi`.
-name: Release
 
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 permissions:
   contents: read
 
 jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            os: ubuntu-24.04
+            asset: pushcv_linux_x86_64
+          - name: linux-arm64
+            os: ubuntu-24.04-arm
+            asset: pushcv_linux_arm64
+          - name: windows-x86_64
+            os: windows-latest
+            asset: pushcv_windows_x86_64.exe
+          - name: windows-arm64
+            os: windows-11-arm
+            asset: pushcv_windows_arm64.exe
+          - name: macos-x86_64
+            os: macos-15-intel
+            asset: pushcv_macOS_x86_64
+          - name: macos-arm64
+            os: macos-14
+            asset: pushcv_macOS_arm64
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip pyinstaller
+          pip install -e "."
+
+      - name: Build pushcv (release)
+        run: python -m PyInstaller --onefile --name pushcv src/pushcv/main.py
+
+      - name: Stage binary as release asset
+        shell: bash
+        run: |
+          mkdir -p dist
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            cp "dist/pushcv.exe" "dist/${{ matrix.asset }}"
+          else
+            cp "dist/pushcv" "dist/${{ matrix.asset }}"
+            chmod +x "dist/${{ matrix.asset }}"
+          fi
+
+      - name: Publish asset to release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          asset="dist/${{ matrix.asset }}"
+          gh release create "$GITHUB_REF_NAME" "$asset" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "pushcv $GITHUB_REF_NAME" \
+            --generate-notes 2>/dev/null \
+          || gh release upload "$GITHUB_REF_NAME" "$asset" --repo "$GITHUB_REPOSITORY" --clobber
+
   test:
     runs-on: ubuntu-latest
     steps:
@@ -25,6 +99,7 @@ jobs:
       - run: pytest -q
 
   publish:
+    if: startsWith(github.ref, 'refs/tags/')
     needs: test
     runs-on: ubuntu-latest
     environment: pypi
