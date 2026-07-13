@@ -88,6 +88,18 @@ cd pushcv-cli
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e .        # wires up the global `pushcv` command
 ```
+
+<summary>If you are using `nix`</summary>
+```bash
+git clone https://github.com/notnotparas/pushcv-cli.git
+cd pushcv-cli
+nix develop
+uv sync
+uv sync --extra dev
+pytest
+uv pip install -e .        # wires up the global `pushcv` command
+```
+
 </details>
 
 ## Quick start

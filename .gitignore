@@ -39,3 +39,7 @@ venv/
 *.swp
 .idea/
 .vscode/
+
+# --- direnv/nix artifacts ---
+.direnv/
+result/
